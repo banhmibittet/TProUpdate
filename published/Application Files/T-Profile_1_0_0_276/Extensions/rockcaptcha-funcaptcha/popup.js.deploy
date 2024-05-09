@@ -1,0 +1,48 @@
+const BASE_API_URL = 'https://api.rockcaptcha.com';
+
+const updateBalance = (apiKey) => {
+  return fetch(`${BASE_API_URL}/user/balance?apikey=${apiKey}`).then(resp => resp.json()).then(data => {
+    if (data["code"] === 0) {
+      const balance = data["Balance"]
+      document.querySelector("#balance").innerText = `- balance ${balance}$`
+    } else {
+      throw Error(data["message"])
+    }
+  })
+}
+
+const initPopup = (apiKey) => {
+  document.querySelector("#save-btn").addEventListener("click", saveInfo)
+  if (apiKey) {
+    updateBalance(apiKey).catch(e => {
+      document.querySelector("#status").innerText = e.toString()
+    })
+    document.querySelector("#api-key").value = apiKey
+  }
+  document.querySelector("#save-btn").disabled = false
+  document.querySelector("#status").innerText = ""
+}
+
+const saveInfo = async () => {
+  document.querySelector("#status").innerText = ""
+  document.querySelector("#save-btn").disabled = true
+  const apiKey = document.querySelector("#api-key").value.trim()
+  if (apiKey && apiKey.length > 0) {
+    await updateBalance(apiKey).then(() => {
+      Config.set({
+        apiKey: apiKey
+      }).then(() => {
+        document.querySelector("#save-btn").disabled = false
+      })
+    }).catch(e => {
+      document.querySelector("#status").innerText = e.toString()
+      document.querySelector("#save-btn").disabled = false
+    })
+  } else {
+    document.querySelector("#save-btn").disabled = false
+  }
+}
+
+window.onload = () => {
+  Config.get("apiKey").then(apiKey => initPopup(apiKey))
+}
