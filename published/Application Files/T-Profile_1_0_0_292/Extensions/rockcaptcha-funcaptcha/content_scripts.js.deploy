@@ -1,0 +1,87 @@
+const publicKeyMatchUrl = "fc/gt2/public_key/";
+const s = document.createElement('script');
+s.src = chrome.runtime.getURL('injected.js');
+
+s.onload = function () {
+  this.remove();
+};
+
+(document.head || document.documentElement).appendChild(s);
+
+const parsePostData = (data) => {
+  let json = {}
+  data.split("&").forEach(e => {
+    let key_map_val = e.split("=")
+    json[key_map_val[0]] = decodeURIComponent(key_map_val[1])
+  })
+  return json
+}
+
+window.addEventListener('message', async function (e) {
+  if (e.data.type === "rockcaptcha") {
+    let data = e.data.data
+    let url = data.url
+    if (url.includes(publicKeyMatchUrl) && data.response.token) {
+      let requestBody = parsePostData(data.postData)
+      let obj = {
+        href: location.href,
+        sitekey: requestBody.public_key,
+        public_key: {
+          url: url,
+          requestBody: requestBody,
+          responseBody: data.response,
+          headers: data.headers
+        }
+      }
+      chrome.runtime.sendMessage({
+        type: SEND_NEW_SITEKEY,
+        data: obj
+      })
+    }
+  }
+});
+
+
+const SOLVE_CAPTCHA_MESSAGE_TYPE = "solve-captcha"
+const SEND_NEW_SITEKEY = "send-new-site-key"
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+
+const extractSiteKey = (url) => {
+  return url.split("/")[3]
+}
+
+
+const waitForSelector = async (dom, selector, timeout = 30) => {
+  const start = new Date().getTime()
+  while ((new Date().getTime() - start) / 1000 < timeout) {
+    const ele = dom.querySelector(selector)
+    if (ele && ele.clientHeight > 0) {
+      return ele
+    }
+    await sleep(200)
+  }
+}
+const checkAndSolve = async (apiKey) => {
+  const url = document.location.href;
+  if (apiKey && url.startsWith("https://iframe.arkoselabs.com/") && url.includes("index.html")) {
+    const siteKey = extractSiteKey(url);
+    await waitForSelector(document, "#arkose > div > iframe")
+    await sleep(1000)
+    chrome.runtime.sendMessage({
+      type: SOLVE_CAPTCHA_MESSAGE_TYPE, siteKey: siteKey, apiKey: apiKey
+    }, (response) => {
+      if (response.success) {
+        parent.postMessage(JSON.stringify({
+          eventId: "challenge-complete", payload: {sessionToken: response.token}
+        }), "*")
+      } else {
+        console.log(`can't solve captcha`, response.message)
+      }
+    })
+  }
+}
+
+window.onload = function () {
+  Config.get("apiKey").then(apiKey => checkAndSolve(apiKey))
+};
+
