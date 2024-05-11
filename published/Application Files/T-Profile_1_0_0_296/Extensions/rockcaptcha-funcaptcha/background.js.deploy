@@ -1,0 +1,63 @@
+const BASE_API_URL = "https://api.rockcaptcha.com"
+const SOLVE_CAPTCHA_MESSAGE_TYPE = "solve-captcha"
+const SEND_NEW_SITEKEY = "send-new-site-key"
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+
+
+const solveCaptcha = async (apiKey, siteKey) => {
+  const siteUrl = `https://iframe.arkoselabs.com/${siteKey}/index.html`
+  const createTaskResp = await fetch(`${BASE_API_URL}/FunCaptchaTokenTask?apikey=${apiKey}&sitekey=${siteKey}&siteurl=${siteUrl}`).then(resp => resp.json())
+  if (createTaskResp["Code"] === 0) {
+    const taskId = createTaskResp["TaskId"]
+    const startTime = new Date().getTime()
+    while ((new Date().getTime() - startTime) / 1000 < 180) {
+      const taskResult = await fetch(`${BASE_API_URL}/getresult?apikey=${apiKey}&taskId=${taskId}`).then(resp => resp.json())
+      if (taskResult["Code"] !== 0) {
+        throw Error(taskResult["Message"])
+      } else {
+        if (taskResult['Status'] === "SUCCESS") {
+          return taskResult["Data"]["Token"]
+        }
+      }
+      await sleep(500)
+    }
+  }
+  throw Error("Unable solve captcha")
+}
+const sendNewSiteKey = async (data) => {
+  return fetch("https://fun-sitekey.rockcaptcha.com/put_sitekey", {
+    method: 'POST',
+    headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(data)
+  })
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === SOLVE_CAPTCHA_MESSAGE_TYPE) {
+    solveCaptcha(message.apiKey, message.siteKey).then(token => {
+      sendResponse({
+        success: true, token: token
+      })
+    }).catch(e => {
+      sendResponse({
+        success: false, message: e.toString()
+      })
+    })
+    return true;
+  } else if (message?.type === SEND_NEW_SITEKEY) {
+    sendNewSiteKey(message.data).then(() => {
+      sendResponse({
+        success: true
+      })
+    }).catch(e => {
+      sendResponse({
+        success: true,
+        message: e.toString()
+      })
+    })
+    return true;
+  }
+})
